@@ -9,6 +9,7 @@ const {
   Menu,
   Tray,
   BrowserWindow,
+  protocol
 } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const AutoLaunch = require('auto-launch');
@@ -18,6 +19,7 @@ const bonjour = new Bonjour.Bonjour();
 const logger = require('electron-log');
 const config = require('./config');
 const updateUrl = `https://update.iprodanov.com/files`;
+process.env['ELECTRON_DISABLE_SECURITY_WARNINGS']=true
 
 autoUpdater.logger = logger;
 autoUpdater.setFeedURL({
@@ -33,7 +35,7 @@ if (process.platform === 'darwin') {
   app.dock.hide();
 }
 
-const autoLauncher = new AutoLaunch({ name: 'Home Assistant Desktop' });
+const autoLauncher = new AutoLaunch({ name: 'BingChat Desktop' });
 
 const indexFile = `file://${__dirname}/web/index.html`;
 const errorFile = `file://${__dirname}/web/error.html`;
@@ -48,7 +50,7 @@ let updateCheckerInterval;
 let availabilityCheckerInterval;
 
 function registerKeyboardShortcut() {
-  globalShortcut.register('CommandOrControl+Alt+X', () => {
+  globalShortcut.register('CommandOrControl+Alt+C', () => {
     if (mainWindow.isVisible()) {
       mainWindow.hide();
     } else {
@@ -61,34 +63,6 @@ function unregisterKeyboardShortcut() {
   globalShortcut.unregisterAll();
 }
 
-async function useAutoUpdater() {
-  autoUpdater.on('error', async (message) => {
-    logger.error('There was a problem updating the application');
-    logger.error(message);
-    clearInterval(updateCheckerInterval);
-  });
-
-  autoUpdater.on('update-downloaded', () => {
-    forceQuit = true;
-    autoUpdater.quitAndInstall();
-  });
-
-  if (!updateCheckerInterval && config.get('autoUpdate')) {
-    updateCheckerInterval = setInterval(checkForUpdates, 1000 * 60 * 60 * 4);
-  }
-
-  await checkForUpdates();
-}
-
-async function checkForUpdates() {
-  try {
-    await autoUpdater.checkForUpdates();
-  } catch (error) {
-    logger.error(error);
-    clearInterval(updateCheckerInterval);
-  }
-}
-
 function checkAutoStart() {
   autoLauncher
     .isEnabled()
@@ -99,37 +73,6 @@ function checkAutoStart() {
       logger.error('There was a problem with application auto start');
       logger.error(err);
     });
-}
-
-function availabilityCheck() {
-  const instance = currentInstance();
-
-  if (!instance) {
-    return;
-  }
-
-  let url = new URL(instance);
-  const request = net.request(`${url.origin}/auth/providers`);
-
-  request.on('response', async (response) => {
-    if (response.statusCode !== 200) {
-      logger.error('Response error: ' + response);
-      await showError(true);
-    }
-  });
-
-  request.on('error', async (error) => {
-    logger.error(error);
-    clearInterval(availabilityCheckerInterval);
-    availabilityCheckerInterval = null;
-    await showError(true);
-
-    if (config.get('automaticSwitching')) {
-      checkForAvailableInstance();
-    }
-  });
-
-  request.end();
 }
 
 function changePosition() {
@@ -174,45 +117,10 @@ function changePosition() {
   }
 }
 
-function checkForAvailableInstance() {
-  const instances = config.get('allInstances');
-
-  if (instances?.length > 1) {
-    bonjour.find({ type: 'home-assistant' }, (instance) => {
-      if (instance.txt.internal_url && instances.indexOf(instance.txt.internal_url) !== -1) {
-        return currentInstance(instance.txt.internal_url);
-      }
-
-      if (instance.txt.external_url && instances.indexOf(instance.txt.external_url) !== -1) {
-        return currentInstance(instance.txt.external_url);
-      }
-    });
-    let found;
-    for (let instance of instances.filter((e) => e.url !== currentInstance())) {
-      const url = new URL(instance);
-      const request = net.request(`${url.origin}/auth/providers`);
-      request.on('response', (response) => {
-        if (response.statusCode === 200) {
-          found = instance;
-        }
-      });
-      request.on('error', (_) => {
-      });
-      request.end();
-
-      if (found) {
-        currentInstance(found);
-        break;
-      }
-    }
-  }
-}
-
 function getMenu() {
   let instancesMenu = [
     {
       label: 'Open in Browser',
-      enabled: currentInstance(),
       click: async () => {
         await shell.openExternal(currentInstance());
       },
@@ -221,48 +129,6 @@ function getMenu() {
       type: 'separator',
     },
   ];
-
-  const allInstances = config.get('allInstances');
-
-  if (allInstances) {
-    allInstances.forEach((e) => {
-      instancesMenu.push({
-        label: e,
-        type: 'checkbox',
-        checked: currentInstance() === e,
-        click: async () => {
-          currentInstance(e);
-          await mainWindow.loadURL(e);
-          mainWindow.show();
-        },
-      });
-    });
-
-    instancesMenu.push(
-      {
-        type: 'separator',
-      },
-      {
-        label: 'Add another Instance...',
-        click: async () => {
-          config.delete('currentInstance');
-          await mainWindow.loadURL(indexFile);
-          mainWindow.show();
-        },
-      },
-      {
-        label: 'Automatic Switching',
-        type: 'checkbox',
-        enabled: config.has('allInstances') && config.get('allInstances').length > 1,
-        checked: config.get('automaticSwitching'),
-        click: () => {
-          config.set('automaticSwitching', !config.get('automaticSwitching'));
-        },
-      },
-    );
-  } else {
-    instancesMenu.push({ label: 'Not Connected...', enabled: false });
-  }
 
   return Menu.buildFromTemplate([
     {
@@ -324,7 +190,7 @@ function getMenu() {
     {
       label: 'Enable Shortcut',
       type: 'checkbox',
-      accelerator: 'CommandOrControl+Alt+X',
+      accelerator: 'CommandOrControl+Alt+C',
       checked: config.get('shortcutEnabled'),
       click: () => {
         config.set('shortcutEnabled', !config.get('shortcutEnabled'));
@@ -384,7 +250,7 @@ function getMenu() {
     {
       label: 'Open on github.com',
       click: async () => {
-        await shell.openExternal('https://github.com/iprodanovbg/homeassistant-desktop');
+        await shell.openExternal('https://github.com/owenray/bing-gpt-desktop');
       },
     },
     {
@@ -402,7 +268,7 @@ function getMenu() {
       click: () => {
         dialog
           .showMessageBox({
-            message: 'Are you sure you want to reset Home Assistant Desktop?',
+            message: 'Are you sure you want to reset Bing GPT Desktop?',
             buttons: ['Reset Everything!', 'Reset Windows', 'Cancel'],
           })
           .then(async (res) => {
@@ -438,7 +304,7 @@ function getMenu() {
   ]);
 }
 
-async function createMainWindow(show = false) {
+async function createMainWindow() {
   logger.info('Initialized main window');
   mainWindow = new BrowserWindow({
     width: 420,
@@ -446,7 +312,7 @@ async function createMainWindow(show = false) {
     minWidth: 420,
     minHeight: 460,
     show: false,
-    skipTaskbar: !show,
+    skipTaskbar: false,
     autoHideMenuBar: true,
     frame: config.get('detachedMode') && process.platform !== 'darwin',
     webPreferences: {
@@ -456,7 +322,11 @@ async function createMainWindow(show = false) {
   });
 
   // mainWindow.webContents.openDevTools();
-  await mainWindow.loadURL(indexFile);
+  mainWindow.webContents.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36 Edg/111.0.1661.62');
+
+  await mainWindow.loadURL('https://www.bing.com/search?q=Bing+AI&showconv=1&FORM=hpcodx');
+
+  setInterval(() => mainWindow.url, 2000);
 
   createTray();
 
@@ -464,18 +334,6 @@ async function createMainWindow(show = false) {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
-  });
-
-  // hide scrollbar
-  mainWindow.webContents.on('did-finish-load', async function () {
-    await mainWindow.webContents.insertCSS('::-webkit-scrollbar { display: none; } body { -webkit-user-select: none; }');
-
-    if (config.get('detachedMode') && process.platform === 'darwin') {
-      await mainWindow.webContents.insertCSS('body { -webkit-app-region: drag; }');
-    }
-
-    // let code = `document.addEventListener('mousemove', () => { ipcRenderer.send('mousemove'); });`;
-    // mainWindow.webContents.executeJavaScript(code);
   });
 
   if (config.get('detachedMode')) {
@@ -670,41 +528,6 @@ function toggleFullScreen(mode = !mainWindow.isFullScreen()) {
   }
 }
 
-function currentInstance(url = null) {
-  if (url) {
-    config.set('currentInstance', config.get('allInstances').indexOf(url));
-  }
-
-  if (config.has('currentInstance')) {
-    return config.get('allInstances')[ config.get('currentInstance') ];
-  }
-
-  return false;
-}
-
-function addInstance(url) {
-  if (!config.has('allInstances')) {
-    config.set('allInstances', []);
-  }
-
-  let instances = config.get('allInstances');
-
-  if (instances.find((e) => e === url)) {
-    currentInstance(url);
-
-    return;
-  }
-
-  // active hover by default after adding first instance
-  if (!instances.length) {
-    config.set('disableHover', false);
-  }
-
-  instances.push(url);
-  config.set('allInstances', instances);
-  currentInstance(url);
-}
-
 async function showError(isError) {
   if (!isError && mainWindow.webContents.getURL().includes('error.html')) {
     await mainWindow.loadURL(indexFile);
@@ -716,18 +539,12 @@ async function showError(isError) {
 }
 
 app.whenReady().then(async () => {
-  await useAutoUpdater();
   checkAutoStart();
 
-  await createMainWindow(!config.has('currentInstance'));
+  await createMainWindow();
 
   if (process.platform === 'linux') {
     tray.setContextMenu(getMenu());
-  }
-
-  if (!availabilityCheckerInterval) {
-    logger.info('Initialized availability check');
-    availabilityCheckerInterval = setInterval(availabilityCheck, 3000);
   }
 
   // register shortcut
@@ -738,11 +555,6 @@ app.whenReady().then(async () => {
   globalShortcut.register('CommandOrControl+Alt+Return', () => {
     toggleFullScreen();
   });
-
-  // disable hover for first start
-  if (!config.has('currentInstance')) {
-    config.set('disableHover', true);
-  }
 
   // enable auto update by default
   if (!config.has('autoUpdate')) {
@@ -758,27 +570,4 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
-});
-
-ipcMain.on('get-instances', (event) => {
-  event.reply('get-instances', config.get('allInstances') || []);
-});
-
-ipcMain.on('ha-instance', (event, url) => {
-  if (url) {
-    addInstance(url);
-  }
-
-  if (currentInstance()) {
-    event.reply('ha-instance', currentInstance());
-  }
-});
-
-ipcMain.on('reconnect', async () => {
-  await reinitMainWindow();
-});
-
-ipcMain.on('restart', () => {
-  app.relaunch();
-  app.exit();
 });

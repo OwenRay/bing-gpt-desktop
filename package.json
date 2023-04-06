@@ -1,16 +1,17 @@
 {
-  "name": "homeassistant-desktop",
+  "name": "bing-gpt-desktop",
   "repository": {
     "type": "git",
-    "url": "https://github.com/iprodanovbg/homeassistant-desktop"
+    "url": "https://github.com/owenray/bing-gpt-desktop"
   },
   "version": "1.5.3",
-  "description": "Desktop App (Windows / macOS / Linux) for Home Assistant built with Electron",
+  "description": "Desktop App (Windows / macOS / Linux) for Bing GPT built with Electron",
   "author": "Ivan Prodanov",
   "license": "Apache-2.0",
   "main": "app.js",
   "scripts": {
-    "start": "electron app.js",
+    "start": "ELECTRON_DISABLE_SECURITY_WARNINGS=true electron app.js",
+    "build": "npm-run-all build-local-mac build-local-mac-arm build-local-linux build-local-linux-arm build-local-win build-local-win-arm",
     "build-local-mac": "electron-builder build --mac --x64 --publish never",
     "build-local-mac-arm": "electron-builder build --mac --arm64 --publish never",
     "build-local-linux": "electron-builder build --linux appimage --x64 --publish never",
@@ -28,16 +29,17 @@
     "electron-updater": "^4.6.5"
   },
   "devDependencies": {
-    "electron": "21.2.0",
-    "electron-builder": "^23.0.0"
+    "electron": "^24.0.0",
+    "electron-builder": "^24.1.3",
+    "npm-run-all": "^4.1.5"
   },
   "engines": {
     "node": ">= 16"
   },
   "build": {
-    "appId": "com.electron.homeassistant-desktop",
+    "appId": "com.electron.chat-gpt-desktop",
     "artifactName": "${productName}-v${version}-${os}-${arch}.${ext}",
-    "productName": "Home Assistant Desktop",
+    "productName": "Bing GPT Desktop",
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
